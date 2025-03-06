@@ -1,142 +1,74 @@
 package github
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
+	"context" // Import the context package
 	"fmt"
-	"net/http"
+	"strings"
+
+	"github.com/google/go-github/github"
+	"golang.org/x/oauth2"
 )
 
-const githubAPI = "https://api.github.com"
-
+// GitHubClient is a custom wrapper around the GitHub client
 type GitHubClient struct {
-	Token string
+	client *github.Client
 }
 
-func NewGitHubClient(token string) *GitHubClient {
-	return &GitHubClient{Token: token}
+// NewGitHubClient initializes a new GitHub client using the provided token
+func NewGitHubClient(token string) (*GitHubClient, error) {
+	if token == "" {
+		return nil, fmt.Errorf("GitHub token is required")
+	}
+
+	// Use OAuth2 to authenticate with the GitHub API
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+	tc := oauth2.NewClient(nil, ts)
+	client := github.NewClient(tc)
+
+	return &GitHubClient{client: client}, nil
 }
 
-// CreateBranch creates a new branch in the repository
-func (c *GitHubClient) CreateBranch(repo, branch string) error {
-	url := fmt.Sprintf("%s/repos/%s/git/refs", githubAPI, repo)
-
-	// Get the default branch reference
-	ref, err := c.getDefaultBranchRef(repo)
+// CreateBranch creates a new branch in the provided repository
+func (c *GitHubClient) CreateBranch(repo string, branchName string, baseBranch string) error {
+	// Get the latest commit on the base branch
+	ctx := context.Background() // Create a background context
+	commit, _, err := c.client.Repositories.GetCommit(ctx, strings.Split(repo, "/")[0], strings.Split(repo, "/")[1], baseBranch)
 	if err != nil {
-		return fmt.Errorf("failed to get default branch: %w", err)
+		return fmt.Errorf("failed to get commit for base branch: %v", err)
 	}
 
-	// Prepare request payload
-	payload := map[string]string{
-		"ref": "refs/heads/" + branch,
-		"sha": ref, // Reference SHA of the default branch
+	// Create the new branch by referencing the base branch's latest commit
+	ref := &github.Reference{
+		Object: &github.GitObject{
+			SHA: commit.SHA,
+		},
 	}
 
-	data, _ := json.Marshal(payload)
-
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "token "+c.Token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
+	_, _, err = c.client.Git.CreateRef(ctx, strings.Split(repo, "/")[0], strings.Split(repo, "/")[1], &github.Reference{
+		Ref:    github.String("refs/heads/" + branchName),
+		Object: ref.Object,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create branch: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("GitHub API error: %s", resp.Status)
+		return fmt.Errorf("failed to create branch: %v", err)
 	}
 
 	return nil
 }
 
-// CreatePR creates a pull request
-func (c *GitHubClient) CreatePR(repo, branch, title, body string) error {
-	url := fmt.Sprintf("%s/repos/%s/pulls", githubAPI, repo)
-
-	payload := map[string]string{
-		"title": title,
-		"head":  branch,
-		"base":  "main", // Assuming "main" is the default branch
-		"body":  body,
-	}
-
-	data, _ := json.Marshal(payload)
-
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(data))
-	req.Header.Set("Authorization", "token "+c.Token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
+// CreatePR creates a new pull request from the given branch to the base branch
+func (c *GitHubClient) CreatePR(repo string, prBranch string, prTitle string, prBody string) error {
+	ctx := context.Background() // Create a background context
+	// Create the pull request
+	_, _, err := c.client.PullRequests.Create(ctx, strings.Split(repo, "/")[0], strings.Split(repo, "/")[1], &github.NewPullRequest{
+		Title: github.String(prTitle),
+		Head:  github.String(prBranch),
+		Base:  github.String("main"),
+		Body:  github.String(prBody),
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create pull request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("GitHub API error: %s", resp.Status)
+		return fmt.Errorf("failed to create pull request: %v", err)
 	}
 
 	return nil
-}
-
-// getDefaultBranchRef retrieves the SHA of the default branch
-func (c *GitHubClient) getDefaultBranchRef(repo string) (string, error) {
-	url := fmt.Sprintf("%s/repos/%s", githubAPI, repo)
-
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "token "+c.Token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch repo details: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API error: %s", resp.Status)
-	}
-
-	var result struct {
-		DefaultBranch string `json:"default_branch"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", errors.New("failed to parse response")
-	}
-
-	// Get SHA of the latest commit on default branch
-	return c.getBranchSHA(repo, result.DefaultBranch)
-}
-
-// getBranchSHA retrieves the latest commit SHA for a given branch
-func (c *GitHubClient) getBranchSHA(repo, branch string) (string, error) {
-	url := fmt.Sprintf("%s/repos/%s/branches/%s", githubAPI, repo, branch)
-
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "token "+c.Token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch branch details: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API error: %s", resp.Status)
-	}
-
-	var result struct {
-		Commit struct {
-			SHA string `json:"sha"`
-		} `json:"commit"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", errors.New("failed to parse response")
-	}
-
-	return result.Commit.SHA, nil
 }
 

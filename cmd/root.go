@@ -1,30 +1,19 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
 var githubToken string
 
-var rootCmd = &cobra.Command{
+// Root command
+var RootCmd = &cobra.Command{
 	Use:   "go-github-cli",
-	Short: "CLI tool for managing GitHub branches and PRs across multiple repositories",
-}
-
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	Short: "A CLI tool for managing GitHub repositories",
 }
 
 func init() {
-	githubToken = os.Getenv("GITHUB_TOKEN")
-	if githubToken == "" {
-		fmt.Println("Error: GITHUB_TOKEN environment variable is not set.")
-		os.Exit(1)
-	}
+	// Persistent flag for GitHub token so that it's available in all subcommands
+	RootCmd.PersistentFlags().StringVar(&githubToken, "token", "", "GitHub personal access token")
 }
+
