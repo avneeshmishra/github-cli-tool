@@ -1,15 +1,15 @@
 # go-github-cli
 
-**go-github-cli** is a command-line tool written in Go for managing GitHub repositories. It automates the creation of Git branches and corresponding pull requests (PRs) across multiple repositories. The tool supports interactive repository selection, a rollback (abort/cleanup) mechanism, and follows modular design with Test-Driven Development (TDD) principles.
+**go-github-cli** is a command-line tool written in Go that automates GitHub repository management. It allows you to create branches and pull requests (PRs) across multiple repositories, supports rollback (abort/cleanup), and follows test-driven development (TDD) principles.
 
 ---
 
-## Table of Contents
-
+## **Table of Contents**
 - [Overview](#overview)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Post-Installation Steps](#post-installation-steps)
 - [Environment Variables](#environment-variables)
 - [Usage](#usage)
   - [Create Branch](#create-branch)
@@ -22,41 +22,121 @@
 
 ---
 
-## Overview
-
-**go-github-cli** simplifies the management of GitHub repositories by enabling you to create branches and pull requests across multiple repositories in one command. The tool ensures:
-- **Unique repository selection** (removes duplicates)
-- **Rollback functionality:** If an error occurs during branch creation, any branches created earlier in the run are automatically deleted.
-- **Robust error handling** for API failures, rate limits, and permission issues.
-- **Interface abstraction and TDD:** Uses an interface for GitHub API interactions with a stub implementation for unit testing.
-- **Modular and maintainable design:** Separate packages for CLI commands, GitHub API interactions, and utility functions.
-
----
-
-## Features
-
-- **Create Git Branches:** Automatically create new branches from a base branch across multiple repositories.
-- **Create Pull Requests:** Generate pull requests using the created branches.
-- **Interactive Repository Selection:** Deduplicates and (optionally) allows interactive selection of repositories.
-- **Rollback (Abort/Cleanup):** If an error occurs during branch creation, previously created branches can be rolled back (deleted).
-- **TDD & Interface Abstraction:** The tool is designed with unit tests and an interface-based API client for easy testing and future extension.
-- **Robust Error Handling:** Clear messaging for API errors, rate limits, and permission issues.
-- **Modular Design:** Organized into separate packages (`cmd`, `github`, and `utils`) for maintainability.
+## **Overview**
+**go-github-cli** simplifies GitHub repository management by automating:
+- **Branch creation across multiple repositories.**
+- **Pull request creation with automated checks.**
+- **Rollback (abort/cleanup) option:** If an error occurs, previously created branches are deleted.
+- **Interactive repository selection** (removes duplicates).
+- **Error handling for API failures, rate limits, and permission issues.**
+- **Test-driven development (TDD):** Includes unit tests using mock APIs.
+- **Modular and maintainable code design.**
 
 ---
 
-## Requirements
-
-- Go 1.18 or higher.
-- A GitHub Personal Access Token (PAT) with sufficient permissions (e.g., `repo` scope).
-- Your GitHub username or organization name.
+## **Features**
+- ✅ **Create Git Branches:** Automate branch creation from a base branch.
+- ✅ **Create Pull Requests:** Generate pull requests across multiple repositories.
+- ✅ **Rollback on Failure:** If an error occurs, previously created branches can be deleted.
+- ✅ **Interactive Repository Selection:** Prevents duplicate repository processing.
+- ✅ **TDD & Interface Abstraction:** Uses an interface (`GitHubAPIClient`) for API interactions.
+- ✅ **Error Handling:** Includes API rate limit handling and permission checks.
+- ✅ **Modular Design:** Organized into `cmd`, `github`, and `utils` packages.
 
 ---
 
-## Installation
+## **Requirements**
+- **Go 1.18+**
+- **GitHub Personal Access Token (PAT)** with `repo` scope.
+- **GitHub username or organization name**.
+
+---
+
+## **Installation**
 
 1. **Clone the repository:**
    ```sh
    git clone https://github.com/yourusername/go-github-cli.git
    cd go-github-cli
+   ```
+
+2. **Initialize Go modules and install dependencies:**
+   ```sh
+   go mod tidy
+   ```
+
+3. **Build the CLI tool:**
+   ```sh
+   go build -o go-github-cli
+   ```
+
+---
+
+## **Post-Installation Steps**
+
+### **Verify Installation**
+After building the tool, you can verify the installation by running:
+```sh
+./go-github-cli --help
+```
+
+If the installation was successful, you should see the list of available commands and options.
+
+### **Set Up Environment Variables**
+Before using the CLI, set the following environment variables:
+
+```sh
+export GITHUB_TOKEN="your_actual_github_token"
+export GITHUB_OWNER="your_github_username_or_org"
+```
+
+To persist these settings, add them to your shell profile:
+```sh
+echo 'export GITHUB_TOKEN="your_actual_github_token"' >> ~/.bashrc
+echo 'export GITHUB_OWNER="your_github_username_or_org"' >> ~/.bashrc
+source ~/.bashrc
+```
+For **macOS/Linux (zsh users)**:
+```sh
+echo 'export GITHUB_TOKEN="your_actual_github_token"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+For **Windows (PowerShell users)**:
+```powershell
+[System.Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "your_actual_github_token", "User")
+[System.Environment]::SetEnvironmentVariable("GITHUB_OWNER", "your_github_username_or_org", "User")
+```
+
+---
+
+## **Troubleshooting**
+
+### **1. Command Not Found**
+If you see an error like:
+```sh
+bash: ./go-github-cli: No such file or directory
+```
+Ensure you are in the correct directory and the file has execution permissions:
+```sh
+ls -la go-github-cli
+chmod +x go-github-cli
+./go-github-cli --help
+```
+
+### **2. GitHub API Authentication Errors**
+If you get authentication errors, verify that your GitHub token is valid:
+```sh
+curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user
+```
+If this fails, generate a new token from **GitHub → Settings → Developer Settings → Personal Access Tokens**.
+
+### **3. Permission Denied on Windows**
+If you face permission errors, run the command as an administrator:
+```powershell
+Start-Process PowerShell -Verb RunAs
+```
+Then retry executing the `go-github-cli` binary.
+
+---
 
