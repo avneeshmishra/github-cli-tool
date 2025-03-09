@@ -1,74 +1,90 @@
 package github
 
 import (
-	"context" // Import the context package
+	"context"
 	"fmt"
-	"strings"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v53/github"
 	"golang.org/x/oauth2"
 )
 
-// GitHubClient is a custom wrapper around the GitHub client
+// GitHubClient implements GitHubAPIClient.
 type GitHubClient struct {
 	client *github.Client
+	owner  string
 }
 
-// NewGitHubClient initializes a new GitHub client using the provided token
-func NewGitHubClient(token string) (*GitHubClient, error) {
-	if token == "" {
-		return nil, fmt.Errorf("GitHub token is required")
-	}
-
-	// Use OAuth2 to authenticate with the GitHub API
+// NewGitHubClient creates a GitHub client with authentication.
+func NewGitHubClient(token, owner string) *GitHubClient {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(nil, ts)
-	client := github.NewClient(tc)
-
-	return &GitHubClient{client: client}, nil
+	tc := oauth2.NewClient(context.Background(), ts)
+	return &GitHubClient{
+		client: github.NewClient(tc),
+		owner:  owner,
+	}
 }
 
-// CreateBranch creates a new branch in the provided repository
-func (c *GitHubClient) CreateBranch(repo string, branchName string, baseBranch string) error {
-	// Get the latest commit on the base branch
-	ctx := context.Background() // Create a background context
-	commit, _, err := c.client.Repositories.GetCommit(ctx, strings.Split(repo, "/")[0], strings.Split(repo, "/")[1], baseBranch)
+// CreateBranch checks if the branch exists and creates it if it doesn't.
+func (g *GitHubClient) CreateBranch(repo, branchName, baseBranch string) error {
+	owner, repoName := g.owner, repo
+
+	// Check if the branch already exists.
+	branch, _, err := g.client.Repositories.GetBranch(context.Background(), owner, repoName, branchName, false)
+	if err == nil && branch != nil {
+		fmt.Printf("⚠️  Branch '%s' already exists in %s. Skipping creation.\n", branchName, repo)
+		return nil // Branch exists, skip creation.
+	}
+
+	// Get reference of the base branch.
+	ref, _, err := g.client.Git.GetRef(context.Background(), owner, repoName, "refs/heads/"+baseBranch)
 	if err != nil {
-		return fmt.Errorf("failed to get commit for base branch: %v", err)
+		return fmt.Errorf("failed to get base branch '%s' in %s: %v", baseBranch, repo, err)
 	}
 
-	// Create the new branch by referencing the base branch's latest commit
-	ref := &github.Reference{
-		Object: &github.GitObject{
-			SHA: commit.SHA,
-		},
-	}
-
-	_, _, err = c.client.Git.CreateRef(ctx, strings.Split(repo, "/")[0], strings.Split(repo, "/")[1], &github.Reference{
+	sha := ref.Object.GetSHA()
+	newRef := &github.Reference{
 		Ref:    github.String("refs/heads/" + branchName),
-		Object: ref.Object,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create branch: %v", err)
+		Object: &github.GitObject{SHA: &sha},
 	}
 
+	_, _, err = g.client.Git.CreateRef(context.Background(), owner, repoName, newRef)
+	if err != nil {
+		return fmt.Errorf("failed to create branch '%s' in %s: %v", branchName, repo, err)
+	}
+
+	fmt.Printf("✅ Branch '%s' created successfully in %s\n", branchName, repo)
 	return nil
 }
 
-// CreatePR creates a new pull request from the given branch to the base branch
-func (c *GitHubClient) CreatePR(repo string, prBranch string, prTitle string, prBody string) error {
-	ctx := context.Background() // Create a background context
-	// Create the pull request
-	_, _, err := c.client.PullRequests.Create(ctx, strings.Split(repo, "/")[0], strings.Split(repo, "/")[1], &github.NewPullRequest{
+// CreatePullRequest creates a new pull request.
+func (g *GitHubClient) CreatePullRequest(repo, prTitle, prBody, branchName, baseBranch string) error {
+	owner, repoName := g.owner, repo
+
+	newPR := &github.NewPullRequest{
 		Title: github.String(prTitle),
-		Head:  github.String(prBranch),
-		Base:  github.String("main"),
 		Body:  github.String(prBody),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create pull request: %v", err)
+		Head:  github.String(branchName),
+		Base:  github.String(baseBranch),
 	}
 
+	pr, _, err := g.client.PullRequests.Create(context.Background(), owner, repoName, newPR)
+	if err != nil {
+		return fmt.Errorf("failed to create pull request in %s: %v", repo, err)
+	}
+
+	fmt.Printf("✅ Pull request created: %s\n", pr.GetHTMLURL())
+	return nil
+}
+
+// DeleteBranch deletes a branch from a repository.
+func (g *GitHubClient) DeleteBranch(repo, branchName string) error {
+	owner, repoName := g.owner, repo
+	ref := "refs/heads/" + branchName
+	_, err := g.client.Git.DeleteRef(context.Background(), owner, repoName, ref)
+	if err != nil {
+		return fmt.Errorf("failed to delete branch '%s' in %s: %v", branchName, repo, err)
+	}
+	fmt.Printf("✅ Rolled back: Branch '%s' deleted from %s\n", branchName, repo)
 	return nil
 }
 

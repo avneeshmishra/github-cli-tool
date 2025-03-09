@@ -2,57 +2,61 @@ package cmd
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/avneeshmishra/go-github-cli/github"
+	"github.com/avneeshmishra/go-github-cli/utils"
+	"github.com/spf13/cobra"
 )
 
-// CreatePrCmd represents the create-pr command
-var CreatePrCmd = &cobra.Command{
+var createPRCmd = &cobra.Command{
 	Use:   "create-pr",
-	Short: "Create a pull request from a branch to the base branch in one or more GitHub repositories",
+	Short: "Create a pull request in selected repositories",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Get the token from flags
-		token, _ := cmd.Flags().GetString("token")
-
-		// Get the list of repositories, PR title, and PR body from the flags
-		repoNames, _ := cmd.Flags().GetString("repo")
-		prTitle, _ := cmd.Flags().GetString("title")
-		prBody, _ := cmd.Flags().GetString("body")
-		prBranch, _ := cmd.Flags().GetString("branch")
-
-		// Split the repo names by comma
-		repos := strings.Split(repoNames, ",")
-
-		// Create a new GitHub client
-		client, err := github.NewGitHubClient(token)
-		if err != nil {
-			fmt.Println("Error initializing GitHub client:", err)
-			return
+		// Get GitHub credentials from environment variables.
+		token := os.Getenv("GITHUB_TOKEN")
+		if token == "" {
+			log.Fatal("GITHUB_TOKEN environment variable is not set.")
+		}
+		owner := os.Getenv("GITHUB_OWNER")
+		if owner == "" {
+			log.Fatal("GITHUB_OWNER environment variable is not set.")
 		}
 
-		// Loop through each repository and create the pull request
-		for _, repo := range repos {
-			err := client.CreatePR(repo, prBranch, prTitle, prBody)
+		// Initialize GitHub client.
+		client := github.NewGitHubClient(token, owner)
+
+		// Deduplicate repositories.
+		repoSet := make(map[string]bool)
+		var repos []string
+		for _, r := range repoNames {
+			trimmed := strings.TrimSpace(r)
+			if trimmed != "" && !repoSet[trimmed] {
+				repoSet[trimmed] = true
+				repos = append(repos, trimmed)
+			}
+		}
+
+		// Optionally allow interactive selection.
+		selectedRepos, err := utils.PromptRepoSelection(repos)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Selected repositories:", selectedRepos)
+
+		// Create a PR in each selected repository.
+		for _, repo := range selectedRepos {
+			err := client.CreatePullRequest(repo, prTitle, prBody, branchName, baseBranch)
 			if err != nil {
-				fmt.Printf("Error creating pull request in %s: %v\n", repo, err)
-			} else {
-				fmt.Printf("Pull request created successfully in %s\n", repo)
+				log.Printf("Error creating PR in %s: %v\n", repo, err)
 			}
 		}
 	},
 }
 
 func init() {
-	// Define flags for create-pr command
-	CreatePrCmd.Flags().String("repo", "", "Comma-separated list of repositories (e.g., user/repo1,user/repo2)")
-	CreatePrCmd.Flags().String("title", "", "The title of the pull request")
-	CreatePrCmd.Flags().String("body", "", "The body of the pull request")
-	CreatePrCmd.Flags().String("branch", "", "The name of the branch to create the pull request from")
-	CreatePrCmd.MarkFlagRequired("repo")
-	CreatePrCmd.MarkFlagRequired("title")
-	CreatePrCmd.MarkFlagRequired("body")
-	CreatePrCmd.MarkFlagRequired("branch")
+	rootCmd.AddCommand(createPRCmd)
 }
 
