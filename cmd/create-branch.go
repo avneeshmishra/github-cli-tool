@@ -1,3 +1,4 @@
+// cmd/create-branch.go - Handles branch creation with rollback
 package cmd
 
 import (
@@ -15,20 +16,20 @@ var createBranchCmd = &cobra.Command{
 	Use:   "create-branch",
 	Short: "Create a new branch in selected repositories with rollback on error",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Get GitHub credentials from environment variables.
+		// Fetch API credentials from env vars
 		token := os.Getenv("GITHUB_TOKEN")
 		if token == "" {
-			log.Fatal("GITHUB_TOKEN environment variable is not set.")
+			log.Fatal("GITHUB_TOKEN is not set. Please set it before running this command.")
 		}
 		owner := os.Getenv("GITHUB_OWNER")
 		if owner == "" {
-			log.Fatal("GITHUB_OWNER environment variable is not set.")
+			log.Fatal("GITHUB_OWNER is not set. Please set it before running this command.")
 		}
 
-		// Initialize the GitHub client.
+		// Initialize GitHub API client
 		client := github.NewGitHubClient(token, owner)
 
-		// Deduplicate the repo list.
+		// Remove duplicates from repo list
 		repoSet := make(map[string]bool)
 		var repos []string
 		for _, r := range repoNames {
@@ -39,37 +40,41 @@ var createBranchCmd = &cobra.Command{
 			}
 		}
 
-		// Optionally allow interactive selection.
+		// Let user confirm repo selection
 		selectedRepos, err := utils.PromptRepoSelection(repos)
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("Selected repositories:", selectedRepos)
 
-		// Track which repositories have been processed successfully.
+		// Only print repo selection once
+		fmt.Printf("Selected repositories: %v\n", selectedRepos)
+
+		// Store created branches for rollback if needed
 		var createdRepos []string
 
-		// Process each repository.
+		// Process each repo
 		for _, repo := range selectedRepos {
 			err := client.CreateBranch(repo, branchName, baseBranch)
 			if err != nil {
 				log.Printf("Error creating branch in %s: %v\n", repo, err)
+
+				// If rollback flag is set, delete already created branches
 				if rollback && len(createdRepos) > 0 {
-					log.Println("Rollback enabled: Deleting branches created so far...")
+					log.Println("Rolling back created branches...")
 					for _, r := range createdRepos {
 						delErr := client.DeleteBranch(r, branchName)
 						if delErr != nil {
 							log.Printf("Error rolling back branch in %s: %v\n", r, delErr)
 						} else {
-							fmt.Printf("Rolled back branch '%s' in %s\n", branchName, r)
+							fmt.Printf("✅ Rolled back branch '%s' in %s\n", branchName, r)
 						}
 					}
-					// Exit after rollback.
 					return
 				}
 			} else {
-				// Only add repository if branch creation succeeded and no error occurred.
+				// Add to rollback list
 				createdRepos = append(createdRepos, repo)
+				fmt.Printf("✅ Branch '%s' created successfully in %s\n", branchName, repo)
 			}
 		}
 	},

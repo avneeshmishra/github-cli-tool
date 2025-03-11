@@ -1,3 +1,6 @@
+// github/github.go - Handles GitHub API interactions (branches & PRs)
+// Author: Avneesh Mishra
+
 package github
 
 import (
@@ -8,13 +11,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// GitHubClient implements GitHubAPIClient.
+// GitHubClient struct holds GitHub API client
 type GitHubClient struct {
 	client *github.Client
 	owner  string
 }
 
-// NewGitHubClient creates a GitHub client with authentication.
+// ✅ Initialize GitHub Client
 func NewGitHubClient(token, owner string) *GitHubClient {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	tc := oauth2.NewClient(context.Background(), ts)
@@ -24,27 +27,28 @@ func NewGitHubClient(token, owner string) *GitHubClient {
 	}
 }
 
-// CreateBranch checks if the branch exists and creates it if it doesn't.
+// ✅ Create a Branch
 func (g *GitHubClient) CreateBranch(repo, branchName, baseBranch string) error {
 	owner, repoName := g.owner, repo
 
-	// Check if the branch already exists.
+	// Check if the branch already exists
 	branch, _, err := g.client.Repositories.GetBranch(context.Background(), owner, repoName, branchName, false)
 	if err == nil && branch != nil {
 		fmt.Printf("⚠️  Branch '%s' already exists in %s. Skipping creation.\n", branchName, repo)
-		return nil // Branch exists, skip creation.
+		return nil
 	}
 
-	// Get reference of the base branch.
+	// Get base branch reference
 	ref, _, err := g.client.Git.GetRef(context.Background(), owner, repoName, "refs/heads/"+baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to get base branch '%s' in %s: %v", baseBranch, repo, err)
 	}
 
+	// Create new branch
 	sha := ref.Object.GetSHA()
 	newRef := &github.Reference{
 		Ref:    github.String("refs/heads/" + branchName),
-		Object: &github.GitObject{SHA: &sha},
+		Object: &github.GitObject{SHA: github.String(sha)},
 	}
 
 	_, _, err = g.client.Git.CreateRef(context.Background(), owner, repoName, newRef)
@@ -56,8 +60,23 @@ func (g *GitHubClient) CreateBranch(repo, branchName, baseBranch string) error {
 	return nil
 }
 
-// CreatePullRequest creates a new pull request.
-func (g *GitHubClient) CreatePullRequest(repo, prTitle, prBody, branchName, baseBranch string) error {
+// ✅ Delete a Branch (Rollback)
+func (g *GitHubClient) DeleteBranch(repo, branchName string) error {
+	owner, repoName := g.owner, repo
+	ref := "refs/heads/" + branchName
+
+	// Call GitHub API to delete the branch
+	_, err := g.client.Git.DeleteRef(context.Background(), owner, repoName, ref)
+	if err != nil {
+		return fmt.Errorf("failed to delete branch '%s' in %s: %v", branchName, repo, err)
+	}
+
+	fmt.Printf("✅ Deleted branch '%s' in %s\n", branchName, repo)
+	return nil
+}
+
+// ✅ Create a Pull Request (Returns PR Number)
+func (g *GitHubClient) CreatePullRequest(repo, prTitle, prBody, branchName, baseBranch string) (int, error) {
 	owner, repoName := g.owner, repo
 
 	newPR := &github.NewPullRequest{
@@ -69,22 +88,30 @@ func (g *GitHubClient) CreatePullRequest(repo, prTitle, prBody, branchName, base
 
 	pr, _, err := g.client.PullRequests.Create(context.Background(), owner, repoName, newPR)
 	if err != nil {
-		return fmt.Errorf("failed to create pull request in %s: %v", repo, err)
+		return 0, fmt.Errorf("failed to create pull request in %s: %v", repo, err)
 	}
 
-	fmt.Printf("✅ Pull request created: %s\n", pr.GetHTMLURL())
-	return nil
+	fmt.Printf("✅ Pull request #%d created successfully in %s\n", pr.GetNumber(), repo)
+	return pr.GetNumber(), nil
 }
 
-// DeleteBranch deletes a branch from a repository.
-func (g *GitHubClient) DeleteBranch(repo, branchName string) error {
+// ✅ Delete a Pull Request (Rollback)
+func (g *GitHubClient) DeletePullRequest(repo string, prNumber int) error {
 	owner, repoName := g.owner, repo
-	ref := "refs/heads/" + branchName
-	_, err := g.client.Git.DeleteRef(context.Background(), owner, repoName, ref)
+	_, resp, err := g.client.PullRequests.Edit(context.Background(), owner, repoName, prNumber, &github.PullRequest{
+		State: github.String("closed"),
+	})
+
 	if err != nil {
-		return fmt.Errorf("failed to delete branch '%s' in %s: %v", branchName, repo, err)
+		return fmt.Errorf("failed to close PR #%d in %s: %v", prNumber, repo, err)
 	}
-	fmt.Printf("✅ Rolled back: Branch '%s' deleted from %s\n", branchName, repo)
+
+	// Ensure PR was successfully closed
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("failed to close PR #%d in %s: unexpected status code %d", prNumber, repo, resp.StatusCode)
+	}
+
+	fmt.Printf("✅ Pull request #%d closed in %s\n", prNumber, repo)
 	return nil
 }
 

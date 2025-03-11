@@ -1,3 +1,6 @@
+// main.go - Entry point of the application
+// Author: Avneesh Mishra
+
 package main
 
 import (
@@ -8,6 +11,7 @@ import (
 )
 
 func main() {
+	// Running the CLI command execution
 	if err := cmd.Execute(); err != nil {
 		log.Println(err)
 		os.Exit(1)
