@@ -91,4 +91,3 @@ var createPRCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(createPRCmd)
 }
-
