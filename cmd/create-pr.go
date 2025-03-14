@@ -1,4 +1,5 @@
 // cmd/create-pr.go - Handles pull request creation with rollback support
+// Author: Avneesh Mishra
 
 package cmd
 
@@ -17,67 +18,72 @@ var createPRCmd = &cobra.Command{
 	Use:   "create-pr",
 	Short: "Create a pull request in selected repositories",
 	Run: func(cmd *cobra.Command, args []string) {
-		// Fetch GitHub credentials from environment variables
+		// Ensure required environment variables are set.
 		token := os.Getenv("GITHUB_TOKEN")
 		if token == "" {
-			log.Fatal("GITHUB_TOKEN is not set. Please set it before running this command.")
+			log.Fatal("GITHUB_TOKEN is not set.")
 		}
 		owner := os.Getenv("GITHUB_OWNER")
 		if owner == "" {
-			log.Fatal("GITHUB_OWNER is not set. Please set it before running this command.")
+			log.Fatal("GITHUB_OWNER is not set.")
 		}
 
-		// Initialize GitHub client
 		client := github.NewGitHubClient(token, owner)
-
-		// Deduplicate repo list
-		repoSet := make(map[string]bool)
 		var repos []string
+
+		// Build the provided repository list after trimming spaces and quotes.
+		providedRepos := make([]string, 0)
 		for _, r := range repoNames {
-			trimmed := strings.TrimSpace(r)
-			if trimmed != "" && !repoSet[trimmed] {
-				repoSet[trimmed] = true
-				repos = append(repos, trimmed)
+			trimmed := strings.Trim(strings.TrimSpace(r), "\"")
+			if trimmed != "" {
+				providedRepos = append(providedRepos, trimmed)
 			}
 		}
 
-		// Let user confirm repo selection
-		selectedRepos, err := utils.PromptRepoSelection(repos)
-		if err != nil {
-			log.Fatal(err)
+		// Use provided repo list if available; otherwise, prompt interactively.
+		if len(providedRepos) > 0 {
+			repos = providedRepos
+		} else {
+			fmt.Println("Fetching available repositories from GitHub...")
+			allRepos, err := client.ListRepositories()
+			if err != nil {
+				log.Fatalf("Error fetching repositories: %v", err)
+			}
+			if len(allRepos) == 0 {
+				log.Fatal("No repositories found in your GitHub account.")
+			}
+			// Use the PR-specific prompt message.
+			selectedRepos, err := utils.PromptRepoSelectionForPR(allRepos)
+			if err != nil {
+				log.Fatal(err)
+			}
+			repos = selectedRepos
 		}
 
-		// Print selected repositories only once
-		fmt.Printf("Selected repositories: %v\n", selectedRepos)
+		if len(repos) == 0 {
+			log.Fatal("No valid repositories selected.")
+		}
 
-		// ✅ Track created PRs for rollback if needed
+		fmt.Printf("Selected repositories: %v\n", repos)
+
+		// Track created PRs for rollback if needed.
 		var createdPRs []struct {
 			Repo     string
 			PRNumber int
 		}
 
-		// ✅ Process each repository
-		for _, repo := range selectedRepos {
-			// Create PR and capture PR number
+		for _, repo := range repos {
 			prNumber, err := client.CreatePullRequest(repo, prTitle, prBody, branchName, baseBranch)
 			if err != nil {
-				log.Printf("Error creating PR in %s: %v\n", repo, err)
-
-				// ✅ If rollback is enabled, delete created PRs
+				log.Printf("Error creating PR in %s: %v", repo, err)
 				if rollback && len(createdPRs) > 0 {
 					log.Println("Rolling back created PRs...")
 					for _, pr := range createdPRs {
-						delErr := client.DeletePullRequest(pr.Repo, pr.PRNumber)
-						if delErr != nil {
-							log.Printf("Error rolling back PR in %s: %v\n", pr.Repo, delErr)
-						} else {
-							fmt.Printf("✅ Rolled back PR #%d in %s\n", pr.PRNumber, pr.Repo)
-						}
+						client.DeletePullRequest(pr.Repo, pr.PRNumber)
 					}
 					return
 				}
 			} else {
-				// ✅ Store created PR info for rollback
 				createdPRs = append(createdPRs, struct {
 					Repo     string
 					PRNumber int
